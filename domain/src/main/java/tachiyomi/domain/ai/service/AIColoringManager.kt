@@ -47,7 +47,13 @@ class AIColoringManager(
 
         return try {
             val base64Image = Base64.encodeToString(image.readBytes(), Base64.NO_WRAP)
-            val imageUrl = "data:image/jpeg;base64,$base64Image"
+            val mimeType = when (image.extension.lowercase()) {
+                "png" -> "image/png"
+                "webp" -> "image/webp"
+                "gif" -> "image/gif"
+                else -> "image/jpeg"
+            }
+            val imageUrl = "data:$mimeType;base64,$base64Image"
             val modelName = preferences.aiModel().get()
             val prompt = preferences.aiPrompt().get().takeIf { it.isNotBlank() } 
                 ?: "Using the input image provided, regenerate the scene in an oil painting style, using a warm autumn palette (oranges and reds)."

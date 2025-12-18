@@ -500,30 +500,9 @@ class Downloader(
                 
                 var extension = getImageExtension(response, file)
                 
-                // FORCE WEBP TO JPG CONVERSION
-                if (extension.equals("webp", ignoreCase = true)) {
-                    try {
-                        logcat { "TEMP_LOG: Converting WEBP to JPG for page ${page.number}" }
-                        val bitmap = android.graphics.BitmapFactory.decodeStream(file.openInputStream())
-                        if (bitmap != null) {
-                            file.delete()
-                            val jpgFile = tmpDir.createFile("$filename.tmp")!!
-                            jpgFile.openOutputStream().use { output ->
-                                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, output)
-                            }
-                            extension = "jpg"
-                        } else {
-                            logcat(LogPriority.ERROR) { "TEMP_LOG: Failed to decode WEBP bitmap" }
-                        }
-                    } catch (e: Exception) {
-                         logcat(LogPriority.ERROR, e) { "TEMP_LOG: Failed to convert WEBP to JPG" }
-                    }
-                }
+                // FORCE WEBP TO JPG CONVERSION REMOVED
+                // if (extension.equals("webp", ignoreCase = true)) { ... }
 
-                file.renameTo("$filename.$extension")
-                logcat { "TEMP_LOG: Saved image as $filename.$extension" }
-
-                // AI Coloring
                 // AI Coloring
                 if (aiColoringManager.isEnabled()) {
                     try {
@@ -537,10 +516,34 @@ class Downloader(
 
                         withTimeout(60_000L) { // 60s timeout
                             aiColoringManager.colorize(tempFile).onSuccess { coloredFile ->
-                                // Write back to UniFile
-                                coloredFile.inputStream().use { input ->
-                                    file.openOutputStream().use { output ->
-                                        input.copyTo(output)
+                                var neededConversion = false
+                                if (extension.equals("webp", ignoreCase = true)) {
+                                    val type = coloredFile.inputStream().use { ImageUtil.findImageType(it) }
+                                    if (type != null && type.extension != "webp") {
+                                        try {
+                                            val bitmap = android.graphics.BitmapFactory.decodeFile(coloredFile.absolutePath)
+                                            if (bitmap != null) {
+                                                file.openOutputStream().use { output ->
+                                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                                                        bitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP_LOSSLESS, 100, output)
+                                                    } else {
+                                                        bitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP, 90, output)
+                                                    }
+                                                }
+                                                neededConversion = true
+                                            }
+                                        } catch (e: Exception) {
+                                            logcat(LogPriority.ERROR, e) { "Failed to convert colored image back to WebP" }
+                                        }
+                                    }
+                                }
+
+                                if (!neededConversion) {
+                                    // Write back to UniFile
+                                    coloredFile.inputStream().use { input ->
+                                        file.openOutputStream().use { output ->
+                                            input.copyTo(output)
+                                        }
                                     }
                                 }
                             }.onFailure { throw it }
@@ -552,6 +555,12 @@ class Downloader(
                         notifier.onAIError(e, page.number.toString(), download.manga.title, download.manga.id)
                     }
                 }
+
+                file.renameTo("$filename.$extension")
+                logcat { "TEMP_LOG: Saved image as $filename.$extension" }
+
+
+
             } catch (e: Exception) {
                 response.close()
                 file.delete()
